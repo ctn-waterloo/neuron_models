@@ -7,8 +7,7 @@
   a Rate neuron, we can pick the first on on the list that matches
 
 - Configuration of parameters is done via descriptors
-- NeuronPools use multiple inheritence off neuron types
-- build() step is delayed until after constructor, as we don't want that
+- make() step is delayed until after constructor, as we don't want that
   to happen until build time
 
 - We initially construct a dummy class that can be fleshed out with
