@@ -59,7 +59,7 @@ class NodeParameter(object):
     def __set__(self, instance, value):
         raise AttributeError('cannot change a NodeParameter')
 
-class Neuron(object):
+class NeuronType(object):
     def __init__(self, **kwargs):
         self._allow_new_attributes = False
         for key, value in kwargs.items():
@@ -68,33 +68,33 @@ class Neuron(object):
         if (not key.startswith('_') and not self._allow_new_attributes
                 and key not in dir(self)):
             raise AttributeError('Unknown parameter "%s"' % key)
-        super(Neuron, self).__setattr__(key, value)
+        super(NeuronType, self).__setattr__(key, value)
 
 
-class LIF(Neuron):
+class LIF(NeuronType):
     tau_rc = FloatParameter(0.02, min=0)
     tau_ref = FloatParameter(0.002, min=0)
 
 
-class Rate(Neuron):
+class Rate(NeuronType):
     pass
 
 
-class Spiking(Neuron):
+class Spiking(NeuronType):
     pass
 
 
-class Fixed(Neuron):
+class Fixed(NeuronType):
     pass
 
 
-class Izhikevich(Neuron):
+class Izhikevich(NeuronType):
     a = FloatParameter(0.02)
     b = FloatParameter(0.2)
     c = FloatParameter(-65)
     d = FloatParameter(8)
 
-class GruberSpiny(Neuron):
+class GruberSpiny(NeuronType):
     dopamine = NodeParameter(dimensions=1)
 
 
@@ -105,7 +105,7 @@ This is the class that should be created by an Ensemble during model
 constructon.  A backend's builder can call build() on this, pass in a
 list of models it knows about, and get a constructed object.
 """
-class NeuronPoolSpecification(object):
+class Neurons(object):
     def __init__(self, n_neurons, neuron_types):
         self._allow_new_attributes = True
         self.n_neurons = n_neurons
@@ -134,7 +134,7 @@ class NeuronPoolSpecification(object):
         if (not key.startswith('_') and not self._allow_new_attributes
                 and key not in dir(self)):
             raise AttributeError('Unknown parameter "%s"' % key)
-        super(NeuronPoolSpecification, self).__setattr__(key, value)
+        super(Neurons, self).__setattr__(key, value)
 
     def build(self, pool_classes):
         # look through the list of neuron models to see if we can
@@ -166,14 +166,6 @@ Backend-specific neuron models
 """
 
 
-class NeuronPool(object):
-    def make(self, n_neurons):
-        raise NotImplementedError('NeuronPools must provide "make"')
-
-    def step(self, dt, J):
-        raise NotImplementedError('NeuronPools must provide "step"')
-
-
 def implements(*neuron_types):
     def wrapper(klass):
         klass.neuron_types = neuron_types
@@ -184,7 +176,7 @@ def implements(*neuron_types):
 
 
 @implements(LIF, Rate)
-class LIFRatePool(NeuronPool):
+class LIFRatePool(object):
     def make(self, n_neurons):
         pass
 
@@ -199,7 +191,7 @@ class LIFRatePool(NeuronPool):
 
 
 @implements(LIF, Spiking)
-class LIFSpikingPool(NeuronPool):
+class LIFSpikingPool(object):
     def make(self, n_neurons):
         self.voltage = np.zeros(n_neurons)
         self.refractory_time = np.zeros(n_neurons)
@@ -226,7 +218,7 @@ class LIFSpikingPool(NeuronPool):
 
 
 @implements(LIF, Spiking, Fixed)
-class LIFFixedPool(NeuronPool):
+class LIFFixedPool(object):
     def make(self, n_neurons):
         self.voltage = np.zeros(n_neurons, dtype='i32')
         self.refractory_time = np.zeros(n_neurons, dtype='u8')
@@ -271,7 +263,7 @@ class LIFFixedPool(NeuronPool):
 
 
 @implements(Izhikevich, Spiking)
-class IzhikevichPool(NeuronPool):
+class IzhikevichPool(object):
     def make(self, n_neurons):
         self.v = np.zeros(n_neurons) + self.c
         self.u = self.b * self.v
@@ -291,7 +283,7 @@ class IzhikevichPool(NeuronPool):
 
 
 @implements(GruberSpiny, Rate)
-class GruberSpinyPool(NeuronPool):
+class GruberSpinyPool(object):
     V_reset = -60
     def make(self, n_neurons):
         self.Vm = np.zeros(n_neurons) + self.V_reset
@@ -362,7 +354,7 @@ if __name__ == '__main__':
 
     for name, spec in specs.items():
         with nengo.Model():
-            pool_spec = NeuronPoolSpecification(100, spec)
+            pool_spec = Neurons(100, spec)
 
         # you can change a parameter before build time
         if name=='LIF rate':
