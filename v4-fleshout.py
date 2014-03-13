@@ -20,6 +20,7 @@
 
 import numpy as np
 import weakref
+import inspect
 
 """
 Neuron type specifications
@@ -87,7 +88,7 @@ Pass in a list of neuron_types to set parameters
 
 
 class NeuronPool(Neuron):
-    def __init__(self, neuron_types=None):
+    def __init__(self, neuron_types):
         self._allow_new_attributes = False
         for n in neuron_types:
             for key in dir(n):
@@ -100,6 +101,57 @@ class NeuronPool(Neuron):
 
     def step(self, dt, J):
         raise NotImplementedError('NeuronPools must provide "step"')
+
+
+
+
+"""
+This is the class that should be created by an Ensemble during model
+constructon.  A backend's builder can call build() on this, pass in a
+list of models it knows about, and get a constructed object.
+"""
+class NeuronPoolSpecification(NeuronPool):
+    def __init__(self, n_neurons, neuron_types):
+        self._allow_new_attributes = True
+        self.n_neurons = n_neurons
+        # make sure it's a list
+        try:
+            len(neuron_types)
+        except TypeError:
+            neuron_types = [neuron_types]
+        # make sure elements in the list are instances, not classes
+        for i, type in enumerate(neuron_types):
+            if inspect.isclass(type):
+                neuron_types[i] = type()
+
+        self.neuron_types = neuron_types
+        for n in neuron_types:
+            for key in dir(n):
+                if not key.startswith('_'):
+                    setattr(self, key, getattr(n, key))
+        self._allow_new_attributes = False
+
+    def build(self, pool_classes):
+        # look through the list of neuron models to see if we can
+        # find a match
+        for model in pool_classes:
+            for type in self.neuron_types:
+                if not issubclass(model, type.__class__):
+                    break
+            else:
+                n = model(self.neuron_types)
+                print n
+                for key in dir(n):
+                    if not key.startswith('_') and not callable(getattr(n, key)):
+                        setattr(n, key, getattr(self, key, getattr(n, key)))
+                        print key, getattr(n, key)
+                n.build(self.n_neurons)
+                return n
+
+        raise Exception('Could not find suitable neuron model')
+
+
+
 
 
 
@@ -220,81 +272,41 @@ neuron_models = [
     IzhikevichPool,
     ]
 
-"""
-Create a pool of neurons, given the required type specifications
-"""
-import inspect
-def create(n_neurons, neuron_type):
-
-    # make sure it's a list
-    try:
-        len(neuron_type)
-    except TypeError:
-        neuron_type = [neuron_type]
-
-    # make sure elements in the list are instances, not classes
-    for i, type in enumerate(neuron_type):
-        if inspect.isclass(type):
-            neuron_type[i] = type()
-
-    # look through the list of neuron models to see if we can
-    # find a match
-    for model in neuron_models:
-        for type in neuron_type:
-            if not issubclass(model, type.__class__):
-                break
-        else:
-            n = model(neuron_type)
-            n.build(n_neurons)
-            return n
-
-    raise Exception('Could not find suitable neuron model')
-
 
 if __name__ == '__main__':
 
-    default = create(100, [])
-    spiking = create(100, [LIF, Spiking])
-    rate = create(100, [LIF, Rate])
-    fixed = create(100, [LIF, Fixed])
-    iz = create(100, [Izhikevich])
-    #iz = create(100, [Izhikevich(a=0.02, b=0.2, c=-50, d=2)])
 
+    specs = {
+            'default': [],
+            'LIF spiking': [LIF, Spiking],
+            'LIF rate': [LIF, Rate],
+            'LIF fixed': [LIF, Fixed],
+            'Iz': [Izhikevich],
+            'Iz burst': [Izhikevich(a=0.02, b=0.2, c=-50, d=2)],
+            }
 
     J = np.linspace(-2, 10, 100)
     dt = 0.001
     T = 1
-    default_data = []
-    spiking_data = []
-    rate_data = []
-    iz_data = []
-    fixed_data = []
-
-    v = []
-    for i in range(int(T/dt)):
-        default_data.append(default.step(dt, J))
-        spiking_data.append(spiking.step(dt, J))
-        rate_data.append(rate.step(dt, J))
-        iz_data.append(iz.step(dt, J))
-        fixed_data.append(fixed.step(dt, J))
-        v.append(fixed.voltage[-1])
-
-    default_tuning = np.sum(default_data, axis=0)/T
-    spiking_tuning = np.sum(spiking_data, axis=0)/T
-    rate_tuning = np.sum(rate_data, axis=0)/T
-    iz_tuning = np.sum(iz_data, axis=0)/T
-    fixed_tuning = np.sum(fixed_data, axis=0)/T
-
     import pylab
-    pylab.subplot(2, 1, 1)
-    pylab.plot(J, default_tuning, label='default')
-    pylab.plot(J, spiking_tuning, label='spiking LIF')
-    pylab.plot(J, rate_tuning, label='rate LIF')
-    pylab.plot(J, iz_tuning, label='Iz')
-    pylab.plot(J, fixed_tuning, label='fixed LIF')
+
+    for name, spec in specs.items():
+        pool_spec = NeuronPoolSpecification(100, spec)
+
+        # you can change a parameter before build time
+        if name=='LIF rate':
+            pool_spec.tau_rc = 0.05
+
+        spec_model = pool_spec.build(neuron_models)
+
+        data = []
+
+        for i in range(int(T/dt)):
+            data.append(spec_model.step(dt, J))
+
+        tuning = np.sum(data, axis=0)/T
+
+        pylab.plot(J, tuning, label=name)
     pylab.legend(loc='best')
-    pylab.subplot(2, 1, 2)
-    pylab.plot(v)
-    #pylab.plot(np.array(fixed_data)[:,-1])
     pylab.show()
 
